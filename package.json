@@ -1,7 +1,7 @@
 {
-  "name": "zx",
-  "version": "7.2.3",
-  "description": "A tool for writing better scripts",
+  "name": "bunzx",
+  "version": "0.0.1",
+  "description": "A tool for writing better scripts with Bun",
   "type": "module",
   "main": "./build/index.js",
   "types": "./build/index.d.ts",
@@ -37,16 +37,16 @@
     "bzx": "./build/cli.js"
   },
   "engines": {
-    "node": ">= 16.0.0"
+    "bun": ">= 1.0.12"
   },
   "scripts": {
     "fmt": "prettier --write .",
     "fmt:check": "prettier --check .",
     "build": "tsc --project tsconfig.prod.json",
     "build:check": "tsc",
-    "test": "bun run build && uvu test -i fixtures",
+    "test": "bun run build && bun --bun uvu test -i fixtures",
     "test:types": "tsd",
-    "coverage": "c8 --check-coverage npm test -- -i package",
+    "coverage": "c8 --check-coverage bun run test -- -i package",
     "mutation": "stryker run",
     "circular": "madge --circular src/*",
     "version": "cat package.json | fx .version"
@@ -60,9 +60,7 @@
     "chalk": "^5.2.0",
     "fs-extra": "^11.1.1",
     "fx": "*",
-    "globby": "^13.1.4",
     "minimist": "^1.2.8",
-    "node-fetch": "3.3.1",
     "ps-tree": "^1.2.0",
     "webpod": "^0",
     "which": "^3.0.0",

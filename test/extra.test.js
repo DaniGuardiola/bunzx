@@ -15,13 +15,14 @@
 import fs from 'node:fs'
 import { suite } from 'uvu'
 import * as assert from 'uvu/assert'
-import { globby } from 'globby'
+import { Glob } from 'bun'
 
 const test = suite('extra')
 
 test('every file should have a license', async () => {
-  const files = await globby(['**/*.{ts,js,mjs}'], { gitignore: true })
-  for (const file of files) {
+  const glob = new Glob('{examples,src,test,test-d}/**/*.{ts,js,mjs}')
+  for await (const file of glob.scan('.')) {
+    if (file.includes('node_modules')) continue
     const content = fs.readFileSync(file).toString()
     assert.match(
       content.replace(/\d{4}/g, 'YEAR'),

@@ -22,29 +22,17 @@ const test = suite('goods')
 $.verbose = false
 
 function zx(script) {
-  return $`node build/cli.js --eval ${script}`.nothrow().timeout('5s')
+  return $`bun build/cli.js --eval ${script}`.nothrow().timeout('5s')
 }
 
 test('question() works', async () => {
-  let p = $`node build/cli.js --eval "
+  let p = $`bun build/cli.js --eval "
   let answer = await question('foo or bar? ', { choices: ['foo', 'bar'] })
   echo('Answer is', answer)
 "`
   p.stdin.write('foo\n')
   p.stdin.end()
   assert.match((await p).stdout, 'Answer is foo')
-})
-
-test('globby available', async () => {
-  assert.is(globby, glob)
-  assert.is(typeof globby, 'function')
-  assert.is(typeof globby.globbySync, 'function')
-  assert.is(typeof globby.globbyStream, 'function')
-  assert.is(typeof globby.generateGlobTasks, 'function')
-  assert.is(typeof globby.isDynamicPattern, 'function')
-  assert.is(typeof globby.isGitIgnored, 'function')
-  assert.is(typeof globby.isGitIgnoredSync, 'function')
-  assert.equal(await globby('*.md'), ['README.md'])
 })
 
 test('fetch() works', async () => {

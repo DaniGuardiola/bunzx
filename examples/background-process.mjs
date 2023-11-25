@@ -14,7 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-const serve = $`npx serve`
+const serve = $`bunx serve`
 
 for await (const chunk of serve.stdout) {
   if (chunk.includes('Accepting connections')) break

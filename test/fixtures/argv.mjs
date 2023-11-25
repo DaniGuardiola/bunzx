@@ -1,4 +1,4 @@
-#!/usr/bin/env zx
+#!/usr/bin/env bunzx
 
 // Copyright 2021 Google LLC
 //
@@ -14,7 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import 'zx/globals'
-import { argv as importedArgv } from 'zx'
+import 'bunzx/globals'
+import { argv as importedArgv } from 'bunzx'
 console.log('global', JSON.stringify(argv))
 console.log('imported', JSON.stringify(importedArgv))

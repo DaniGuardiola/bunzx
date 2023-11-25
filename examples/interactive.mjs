@@ -16,15 +16,18 @@
 
 const p = $`npm init`.stdio('pipe')
 
+const decoder = new TextDecoder()
+
 for await (const chunk of p.stdout) {
-  if (chunk.includes('package name:')) p.stdin.write('test\n')
-  if (chunk.includes('version:')) p.stdin.write('1.0.0\n')
-  if (chunk.includes('description:')) p.stdin.write('My test package\n')
-  if (chunk.includes('entry point:')) p.stdin.write('index.mjs\n')
-  if (chunk.includes('test command:')) p.stdin.write('test.mjs\n')
-  if (chunk.includes('git repository:')) p.stdin.write('my-org/repo\n')
-  if (chunk.includes('keywords:')) p.stdin.write('foo, bar\n')
-  if (chunk.includes('author:')) p.stdin.write('Anton Medvedev\n')
-  if (chunk.includes('license:')) p.stdin.write('MIT\n')
-  if (chunk.includes('Is this OK?')) p.stdin.write('yes\n')
+  const chunkStr = decoder.decode(chunk)
+  if (chunkStr.includes('package name:')) p.stdin.write('test\n')
+  if (chunkStr.includes('version:')) p.stdin.write('1.0.0\n')
+  if (chunkStr.includes('description:')) p.stdin.write('My test package\n')
+  if (chunkStr.includes('entry point:')) p.stdin.write('index.mjs\n')
+  if (chunkStr.includes('test command:')) p.stdin.write('test.mjs\n')
+  if (chunkStr.includes('git repository:')) p.stdin.write('my-org/repo\n')
+  if (chunkStr.includes('keywords:')) p.stdin.write('foo, bar\n')
+  if (chunkStr.includes('author:')) p.stdin.write('Anton Medvedev\n')
+  if (chunkStr.includes('license:')) p.stdin.write('MIT\n')
+  if (chunkStr.includes('Is this OK?')) p.stdin.write('yes\n')
 }

@@ -364,8 +364,7 @@ export async function pipeReadableStreamToFileSink(
   sink: FileSink
 ): Promise<void> {
   for await (const chunk of source) sink.write(chunk)
-  await sink.flush()
-  sink.end()
+  await sink.end()
 }
 
 export async function onData(
@@ -373,4 +372,22 @@ export async function onData(
   onData: (chunk: any) => void
 ) {
   for await (const chunk of stream) onData(chunk)
+}
+
+// based on https://github.com/dmnsgn/typed-array-concat/blob/main/index.js
+export function typedArrayConcat<T extends TypedArray>(
+  ResultConstructor: new (...args: any[]) => T,
+  arrays: T[]
+) {
+  let totalLength = 0
+  for (const arr of arrays) {
+    totalLength += arr.length
+  }
+  const result = new ResultConstructor(totalLength)
+  let offset = 0
+  for (const arr of arrays) {
+    result.set(arr as unknown as ArrayLike<number> & ArrayLike<bigint>, offset)
+    offset += arr.length
+  }
+  return result
 }

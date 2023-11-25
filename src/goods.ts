@@ -13,9 +13,7 @@
 // limitations under the License.
 
 import assert from 'node:assert'
-import * as globbyModule from 'globby'
 import minimist from 'minimist'
-import nodeFetch, { RequestInfo, RequestInit } from 'node-fetch'
 import { createInterface } from 'node:readline'
 import { $, within, ProcessOutput } from './core.js'
 import { Duration, isString, parseDuration } from './util.js'
@@ -36,24 +34,10 @@ export function updateArgv(args: string[]) {
   ;(global as any).argv = argv
 }
 
-export const globby = Object.assign(function globby(
-  patterns: string | readonly string[],
-  options?: globbyModule.Options
-) {
-  return globbyModule.globby(patterns, options)
-},
-globbyModule)
-export const glob = globby
-
 export function sleep(duration: Duration) {
   return new Promise((resolve) => {
     setTimeout(resolve, parseDuration(duration))
   })
-}
-
-export async function fetch(url: RequestInfo, init?: RequestInit) {
-  $.log({ kind: 'fetch', url, init })
-  return nodeFetch(url, init)
 }
 
 export function echo(...args: any[]): void

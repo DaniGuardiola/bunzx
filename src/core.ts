@@ -15,7 +15,6 @@
 import assert from 'node:assert'
 import { AsyncLocalStorage, createHook } from 'node:async_hooks'
 import { inspect } from 'node:util'
-import { RequestInfo, RequestInit } from 'node-fetch'
 import chalk, { ChalkInstance } from 'chalk'
 import which from 'which'
 import {
@@ -30,6 +29,7 @@ import {
   psTree,
   quote,
   quotePowerShell,
+  typedArrayConcat,
 } from './util.js'
 import { BunFile, FileSink, Subprocess } from 'bun'
 
@@ -138,7 +138,7 @@ type Resolve = (out: ProcessOutput) => void
 type StdioNull = 'inherit' | 'ignore'
 type StdioPipeNamed = 'pipe'
 type StdioPipe = undefined | null | StdioPipeNamed
-type WritableIO = StdioPipe | StdioNull | ReadableStream
+type WritableIO = StdioPipe | StdioNull | ReadableStream<Uint8Array>
 type ReadableIO = StdioPipe | StdioNull | BunFile
 
 export class ProcessPromise extends Promise<ProcessOutput> {
@@ -186,20 +186,29 @@ export class ProcessPromise extends Promise<ProcessOutput> {
       cmd: this._command,
       verbose: $.verbose && !this._quiet,
     })
-    // TODO: this won't work because Bun expects an array of strings, of which the first is the executable.
-    this.child = $.spawn([$.prefix + this._command], {
-      cwd: $.cwd ?? $[processCwd],
-      shell: typeof $.shell === 'string' ? $.shell : true,
-      stdio: this._stdio,
-      windowsHide: true,
-      env: $.env,
-    })
+    const command = $.prefix + this._command
+    this.child = $.spawn(
+      [typeof $.shell === 'string' ? $.shell : 'bash', '-c', command],
+      {
+        cwd: $.cwd ?? $[processCwd],
+        shell: typeof $.shell === 'string' ? $.shell : true,
+        stdio: this._stdio,
+        windowsHide: true,
+        env: $.env,
+      }
+    )
 
     this.child.exited.then(() => {
       const { exitCode: code, signalCode: signal } = this.child!
+      const decoder = new TextDecoder()
+      const stdoutString = decoder.decode(typedArrayConcat(Uint8Array, stdout))
+      const stderrString = decoder.decode(typedArrayConcat(Uint8Array, stderr))
+      const combinedString = decoder.decode(
+        typedArrayConcat(Uint8Array, combined)
+      )
       let message = `exit code: ${code}`
       if (code != 0 || signal != null) {
-        message = `${stderr || '\n'}    at ${this._from}`
+        message = `${stderrString || '\n'}    at ${this._from}`
         message += `\n    exit code: ${code}${
           exitCodeInfo(code) ? ' (' + exitCodeInfo(code) + ')' : ''
         }`
@@ -210,9 +219,9 @@ export class ProcessPromise extends Promise<ProcessOutput> {
       let output = new ProcessOutput(
         code,
         signal,
-        stdout,
-        stderr,
-        combined,
+        stdoutString,
+        stderrString,
+        combinedString,
         message
       )
       if (code === 0 || this._nothrow) {
@@ -234,18 +243,18 @@ export class ProcessPromise extends Promise<ProcessOutput> {
     //   )
     //   this._resolved = true
     // })
-    let stdout = '',
-      stderr = '',
-      combined = ''
-    let onStdout = (data: any) => {
+    let stdout: Uint8Array[] = [],
+      stderr: Uint8Array[] = [],
+      combined: Uint8Array[] = []
+    let onStdout = (data: Uint8Array) => {
       $.log({ kind: 'stdout', data, verbose: $.verbose && !this._quiet })
-      stdout += data
-      combined += data
+      stdout.push(data)
+      combined.push(data)
     }
     let onStderr = (data: any) => {
       $.log({ kind: 'stderr', data, verbose: $.verbose && !this._quiet })
-      stderr += data
-      combined += data
+      stderr.push(data)
+      combined.push(data)
     }
     if (
       !this._piped && // If process is piped, don't collect or print output.
@@ -274,7 +283,7 @@ export class ProcessPromise extends Promise<ProcessOutput> {
     return this.child.stdin
   }
 
-  get stdout(): ReadableStream {
+  get stdout(): ReadableStream<Uint8Array> {
     this.run()
     assert(this.child)
     if (this.child.stdout == null)
@@ -284,7 +293,7 @@ export class ProcessPromise extends Promise<ProcessOutput> {
     return this.child.stdout
   }
 
-  get stderr(): ReadableStream {
+  get stderr(): ReadableStream<Uint8Array> {
     this.run()
     assert(this.child)
     if (this.child.stderr == null)
@@ -489,7 +498,7 @@ export type LogEntry =
   | {
       kind: 'stdout' | 'stderr'
       verbose: boolean
-      data: Buffer
+      data: Uint8Array
     }
   | {
       kind: 'cd'
@@ -497,7 +506,7 @@ export type LogEntry =
     }
   | {
       kind: 'fetch'
-      url: RequestInfo
+      url: string
       init?: RequestInit
     }
   | {
@@ -518,7 +527,7 @@ export function log(entry: LogEntry) {
     case 'stdout':
     case 'stderr':
       if (!entry.verbose) return
-      process.stderr.write(entry.data)
+      Bun.write(Bun.stderr, entry.data)
       break
     case 'cd':
       if (!$.verbose) return

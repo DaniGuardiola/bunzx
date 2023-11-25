@@ -32,7 +32,7 @@ test('installDeps() loader works via JS API', async () => {
 
 test('installDeps() loader works via CLI', async () => {
   let out =
-    await $`node build/cli.js --install <<< 'import _ from "lodash" /* @4.17.15 */; console.log(_.VERSION)'`
+    await $`bun build/cli.js --install <<< 'import _ from "lodash" /* @4.17.15 */; console.log(_.VERSION)'`
   assert.match(out.stdout, '4.17.15')
 })
 
