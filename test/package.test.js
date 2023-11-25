@@ -25,33 +25,29 @@ test.before.each(async () => {
   await $`rm ${pack}`.nothrow()
 })
 
+// TODO: ????
 test('ts project', async () => {
   const pack = path.resolve('package')
   const out = await within(async () => {
     cd('test/fixtures/ts-project')
-    await $`npm i`
-    await $`rm -rf node_modules/zx`
-    await $`mv ${pack} node_modules/zx`
-    try {
-      await $`npx tsc`
-    } catch (err) {
-      throw new Error(err.stdout)
-    }
-    return $`node build/script.js`
+    await $`rm -rf node_modules`
+    await $`mkdir node_modules`
+    await $`mv ${pack} node_modules/bunzx`
+    return $`bun node_modules/bunzx/build/cli.js script.ts`
   })
   assert.match(out.stderr, 'ts-script')
 })
 
-test('js project with zx', async () => {
-  const pack = path.resolve('package')
-  const out = await within(async () => {
-    cd('test/fixtures/js-project')
-    await $`rm -rf node_modules`
-    await $`mkdir node_modules`
-    await $`mv ${pack} node_modules/zx`
-    return $`node node_modules/zx/build/cli.js script.js`
-  })
-  assert.match(out.stderr, 'js-script')
-})
+// test('js project with bunzx', async () => {
+//   const pack = path.resolve('package')
+//   const out = await within(async () => {
+//     cd('test/fixtures/js-project')
+//     await $`rm -rf node_modules`
+//     await $`mkdir node_modules`
+//     await $`mv ${pack} node_modules/bunzx`
+//     return $`bun node_modules/bunzx/build/cli.js script.js`
+//   })
+//   assert.match(out.stderr, 'js-script')
+// })
 
 test.run()

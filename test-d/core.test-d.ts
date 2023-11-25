@@ -13,16 +13,16 @@
 // limitations under the License.
 
 import assert from 'node:assert'
-import { Readable, Writable } from 'node:stream'
 import { expectType } from 'tsd'
 import { $, ProcessPromise, ProcessOutput, within } from '../src/core.js'
+import { FileSink } from 'bun'
 
 let p = $`cmd`
 assert(p instanceof ProcessPromise)
 expectType<ProcessPromise>(p)
-expectType<Writable>(p.stdin)
-expectType<Readable>(p.stdout)
-expectType<Readable>(p.stderr)
+expectType<FileSink>(p.stdin)
+expectType<ReadableStream<Uint8Array>>(p.stdout)
+expectType<ReadableStream<Uint8Array>>(p.stderr)
 expectType<ProcessPromise>(p.nothrow())
 expectType<ProcessPromise>(p.quiet())
 expectType<ProcessPromise>(p.pipe($`cmd`))

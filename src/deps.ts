@@ -26,8 +26,8 @@ export async function installDeps(
   if (packages.length === 0) {
     return
   }
-  await spinner(`npm i ${packages.join(' ')}`, () =>
-    $`npm install --no-save --no-audit --no-fund ${flags} ${packages}`.nothrow()
+  await spinner(`bun add ${packages.join(' ')}`, () =>
+    $`bun install --no-save ${flags} ${packages}`.nothrow()
   )
 }
 

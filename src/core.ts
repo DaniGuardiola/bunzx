@@ -13,24 +13,25 @@
 // limitations under the License.
 
 import assert from 'node:assert'
-import { ChildProcess, spawn, StdioNull, StdioPipe } from 'node:child_process'
 import { AsyncLocalStorage, createHook } from 'node:async_hooks'
-import { Readable, Writable } from 'node:stream'
 import { inspect } from 'node:util'
-import { RequestInfo, RequestInit } from 'node-fetch'
 import chalk, { ChalkInstance } from 'chalk'
 import which from 'which'
 import {
   Duration,
-  errnoMessage,
+  // errnoMessage,
   exitCodeInfo,
   formatCmd,
   noop,
+  onData,
   parseDuration,
+  pipeReadableStreamToFileSink,
   psTree,
   quote,
   quotePowerShell,
+  typedArrayConcat,
 } from './util.js'
+import { BunFile, FileSink, Subprocess } from 'bun'
 
 export type Shell = (
   pieces: TemplateStringsArray,
@@ -47,7 +48,7 @@ export type Options = {
   shell: string | boolean
   prefix: string
   quote: typeof quote
-  spawn: typeof spawn
+  spawn: typeof Bun.spawn
   log: typeof log
 }
 
@@ -70,7 +71,7 @@ export const defaults: Options = {
   quote: () => {
     throw new Error('No quote function is defined: https://ï.at/no-quote-func')
   },
-  spawn,
+  spawn: Bun.spawn,
   log,
 }
 
@@ -134,16 +135,24 @@ function substitute(arg: ProcessPromise | any) {
 }
 
 type Resolve = (out: ProcessOutput) => void
-type IO = StdioPipe | StdioNull
+type StdioNull = 'inherit' | 'ignore'
+type StdioPipeNamed = 'pipe'
+type StdioPipe = undefined | null | StdioPipeNamed
+type WritableIO = StdioPipe | StdioNull | ReadableStream<Uint8Array>
+type ReadableIO = StdioPipe | StdioNull | BunFile
 
 export class ProcessPromise extends Promise<ProcessOutput> {
-  child?: ChildProcess
+  child?: Subprocess
   private _command = ''
   private _from = ''
   private _resolve: Resolve = noop
   private _reject: Resolve = noop
   private _snapshot = getStore()
-  private _stdio: [IO, IO, IO] = ['inherit', 'pipe', 'pipe']
+  private _stdio: [WritableIO, ReadableIO, ReadableIO] = [
+    'inherit',
+    'pipe',
+    'pipe',
+  ]
   private _nothrow = false
   private _quiet = false
   private _timeout?: number
@@ -177,17 +186,29 @@ export class ProcessPromise extends Promise<ProcessOutput> {
       cmd: this._command,
       verbose: $.verbose && !this._quiet,
     })
-    this.child = $.spawn($.prefix + this._command, {
-      cwd: $.cwd ?? $[processCwd],
-      shell: typeof $.shell === 'string' ? $.shell : true,
-      stdio: this._stdio,
-      windowsHide: true,
-      env: $.env,
-    })
-    this.child.on('close', (code, signal) => {
+    const command = $.prefix + this._command
+    this.child = $.spawn(
+      [typeof $.shell === 'string' ? $.shell : 'bash', '-c', command],
+      {
+        cwd: $.cwd ?? $[processCwd],
+        shell: typeof $.shell === 'string' ? $.shell : true,
+        stdio: this._stdio,
+        windowsHide: true,
+        env: $.env,
+      }
+    )
+
+    this.child.exited.then(() => {
+      const { exitCode: code, signalCode: signal } = this.child!
+      const decoder = new TextDecoder()
+      const stdoutString = decoder.decode(typedArrayConcat(Uint8Array, stdout))
+      const stderrString = decoder.decode(typedArrayConcat(Uint8Array, stderr))
+      const combinedString = decoder.decode(
+        typedArrayConcat(Uint8Array, combined)
+      )
       let message = `exit code: ${code}`
       if (code != 0 || signal != null) {
-        message = `${stderr || '\n'}    at ${this._from}`
+        message = `${stderrString || '\n'}    at ${this._from}`
         message += `\n    exit code: ${code}${
           exitCodeInfo(code) ? ' (' + exitCodeInfo(code) + ')' : ''
         }`
@@ -198,9 +219,9 @@ export class ProcessPromise extends Promise<ProcessOutput> {
       let output = new ProcessOutput(
         code,
         signal,
-        stdout,
-        stderr,
-        combined,
+        stdoutString,
+        stderrString,
+        combinedString,
         message
       )
       if (code === 0 || this._nothrow) {
@@ -210,32 +231,39 @@ export class ProcessPromise extends Promise<ProcessOutput> {
       }
       this._resolved = true
     })
-    this.child.on('error', (err: NodeJS.ErrnoException) => {
-      const message =
-        `${err.message}\n` +
-        `    errno: ${err.errno} (${errnoMessage(err.errno)})\n` +
-        `    code: ${err.code}\n` +
-        `    at ${this._from}`
-      this._reject(
-        new ProcessOutput(null, null, stdout, stderr, combined, message)
-      )
-      this._resolved = true
-    })
-    let stdout = '',
-      stderr = '',
-      combined = ''
-    let onStdout = (data: any) => {
+    // TODO: what's the Bun equivalent?
+    // this.child.on('error', (err: NodeJS.ErrnoException) => {
+    //   const message =
+    //     `${err.message}\n` +
+    //     `    errno: ${err.errno} (${errnoMessage(err.errno)})\n` +
+    //     `    code: ${err.code}\n` +
+    //     `    at ${this._from}`
+    //   this._reject(
+    //     new ProcessOutput(null, null, stdout, stderr, combined, message)
+    //   )
+    //   this._resolved = true
+    // })
+    let stdout: Uint8Array[] = [],
+      stderr: Uint8Array[] = [],
+      combined: Uint8Array[] = []
+    let onStdout = (data: Uint8Array) => {
       $.log({ kind: 'stdout', data, verbose: $.verbose && !this._quiet })
-      stdout += data
-      combined += data
+      stdout.push(data)
+      combined.push(data)
     }
     let onStderr = (data: any) => {
       $.log({ kind: 'stderr', data, verbose: $.verbose && !this._quiet })
-      stderr += data
-      combined += data
+      stderr.push(data)
+      combined.push(data)
     }
-    if (!this._piped) this.child.stdout?.on('data', onStdout) // If process is piped, don't collect or print output.
-    this.child.stderr?.on('data', onStderr) // Stderr should be printed regardless of piping.
+    if (
+      !this._piped && // If process is piped, don't collect or print output.
+      this.child.stdout &&
+      typeof this.child.stdout !== 'number'
+    )
+      onData(this.child.stdout, onStdout)
+    if (this.child.stderr && typeof this.child.stderr !== 'number')
+      onData(this.child.stderr, onStderr) // Stderr should be printed regardless of piping.
     this._postrun() // In case $1.pipe($2), after both subprocesses are running, we can pipe $1.stdout to $2.stdin.
     if (this._timeout && this._timeoutSignal) {
       const t = setTimeout(() => this.kill(this._timeoutSignal), this._timeout)
@@ -244,28 +272,34 @@ export class ProcessPromise extends Promise<ProcessOutput> {
     return this
   }
 
-  get stdin(): Writable {
+  get stdin(): FileSink {
     this.stdio('pipe')
     this.run()
     assert(this.child)
     if (this.child.stdin == null)
       throw new Error('The stdin of subprocess is null.')
+    if (typeof this.child.stdin === 'number')
+      throw new Error('The stdin of subprocess is number.')
     return this.child.stdin
   }
 
-  get stdout(): Readable {
+  get stdout(): ReadableStream<Uint8Array> {
     this.run()
     assert(this.child)
     if (this.child.stdout == null)
       throw new Error('The stdout of subprocess is null.')
+    if (typeof this.child.stdout === 'number')
+      throw new Error('The stdout of subprocess is number.')
     return this.child.stdout
   }
 
-  get stderr(): Readable {
+  get stderr(): ReadableStream<Uint8Array> {
     this.run()
     assert(this.child)
     if (this.child.stderr == null)
       throw new Error('The stderr of subprocess is null.')
+    if (typeof this.child.stderr === 'number')
+      throw new Error('The stderr of subprocess is number.')
     return this.child.stderr
   }
 
@@ -301,7 +335,7 @@ export class ProcessPromise extends Promise<ProcessOutput> {
     return super.catch(onrejected)
   }
 
-  pipe(dest: Writable | ProcessPromise): ProcessPromise {
+  pipe(dest: FileSink | ProcessPromise): ProcessPromise {
     if (typeof dest == 'string')
       throw new Error('The pipe() method does not take strings. Forgot $?')
     if (this._resolved) {
@@ -319,11 +353,11 @@ export class ProcessPromise extends Promise<ProcessOutput> {
           throw new Error(
             'Access to stdin of pipe destination without creation a subprocess.'
           )
-        this.stdout.pipe(dest.stdin)
+        pipeReadableStreamToFileSink(this.stdout, dest.stdin)
       }
       return dest
     } else {
-      this._postrun = () => this.stdout.pipe(dest)
+      this._postrun = () => pipeReadableStreamToFileSink(this.stdout, dest)
       return this
     }
   }
@@ -343,7 +377,11 @@ export class ProcessPromise extends Promise<ProcessOutput> {
     } catch (e) {}
   }
 
-  stdio(stdin: IO, stdout: IO = 'pipe', stderr: IO = 'pipe'): ProcessPromise {
+  stdio(
+    stdin: WritableIO,
+    stdout: ReadableIO = 'pipe',
+    stderr: ReadableIO = 'pipe'
+  ): ProcessPromise {
     this._stdio = [stdin, stdout, stderr]
     return this
   }
@@ -460,7 +498,7 @@ export type LogEntry =
   | {
       kind: 'stdout' | 'stderr'
       verbose: boolean
-      data: Buffer
+      data: Uint8Array
     }
   | {
       kind: 'cd'
@@ -468,7 +506,7 @@ export type LogEntry =
     }
   | {
       kind: 'fetch'
-      url: RequestInfo
+      url: string
       init?: RequestInit
     }
   | {
@@ -489,7 +527,7 @@ export function log(entry: LogEntry) {
     case 'stdout':
     case 'stderr':
       if (!entry.verbose) return
-      process.stderr.write(entry.data)
+      Bun.write(Bun.stderr, entry.data)
       break
     case 'cd':
       if (!$.verbose) return
